@@ -1,0 +1,37 @@
+CHIP Add4CLA {
+    // Carry Look-ahead Adder
+    IN a[4], b[4], c;
+    OUT sum[4], carry;
+
+    PARTS:
+    // g
+    And(a=a[0], b=b[0], out=g0);
+    And(a=a[1], b=b[1], out=g1);
+    And(a=a[2], b=b[2], out=g2);
+    And(a=a[3], b=b[3], out=g3);
+
+    // q
+    Xor(a=a[0], b=b[0], out=q0);
+    Xor(a=a[1], b=b[1], out=q1);
+    Xor(a=a[2], b=b[2], out=q2);
+    Xor(a=a[3], b=b[3], out=q3);
+
+    // c0
+    And(a=q0, b=c, out=t0);
+    Or(a=g0, b=t0, out=c0);
+    // c1
+    And(a=q1, b=c0, out=t1);
+    Or(a=g1, b=t1, out=c1);
+    // c2
+    And(a=q2, b=c1, out=t2);
+    Or(a=g2, b=t2, out=c2);
+    // carry(c3)
+    And(a=q3, b=c2, out=t3);
+    Or(a=g3, b=t3, out=carry);
+
+    // sum
+    Xor(a=c, b=q0, out=sum[0]);
+    Xor(a=c0, b=q1, out=sum[1]);
+    Xor(a=c1, b=q2, out=sum[2]);
+    Xor(a=c2, b=q3, out=sum[3]);
+}
