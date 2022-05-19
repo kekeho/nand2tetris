@@ -208,13 +208,13 @@ proc main() =
             (x) => normalize(x)
         ).filter((x) => x.len > 0)
         
-        # make symbol table
+        # First step: make symbol table
         var (symbolTable, newLines) = createSymbolTable(allLines)
         echo "===SYMBOL TABLE==="
         for k, v in symbolTable.table.pairs:
             echo k & ":\t" & $v
 
-        # compile
+        # Second step: translate asm to binary
         for line in newLines:
             let converted: Option[string] = lineProcessor(line, symbolTable)
             if converted.isNone:
