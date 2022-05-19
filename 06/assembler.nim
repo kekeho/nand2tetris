@@ -7,27 +7,85 @@ import strutils
 import options
 import sugar
 import sequtils
+import tables
 
 
+type SymbolTable = object
+    table: Table[string, uint]
+    variableCounter: uint
 
 
-type Command = enum
-    ACommand
-    CCommand
-    # TODO: Symbol
+func initSymbolTable(): SymbolTable =
+    let t = initTable[string, uint]()
+    let c: uint = 16
+    return SymbolTable(table: t, variableCounter: c)
 
 
+type Instruction = enum
+    AInstruction
+    CInstruction
 
-func commandParser(line: string): Command =
+
+func normalize(line: string): string =
+    ## delete comments and spaces
+    var rline = line
+    let cmt = rline.find("//")
+    if cmt >= 0:
+        rline = rline[0..cmt-1]
+    rline = rline.strip()
+
+    return rline
+
+
+func machineFilename(asmFilename: string): string =
+    let splitted = asmFilename.split(".")
+    let machine = splitted[0..splitted.len-2] & "hack"
+    return machine.join(".")
+
+
+func instructionParser(line: string): Instruction =
     if line[0] == '@':
-        return ACommand
-    return CCommand
+        return AInstruction
+    return CInstruction
 
 
-func aParser(line: string): string =
-    ## Parse A command
-    let value: int = line[1..line.len()-1].parseInt()
-    return "0" & value.toBin(15)
+func aParser(line: string, symbolTable: var SymbolTable): string =
+    ## Parse A instruction
+
+    let valueString = line[1..len(line)-1]
+    
+    if valueString[0] == 'R':
+        try:
+            return "0" & valueString[1..len(valueString)-1].parseInt().toBin(15)
+        except ValueError:
+            discard
+    
+    case valueString
+    of "SP":
+        return "0" & 0.toBin(15)
+    of "LCL":
+        return "0" & 1.toBin(15)
+    of "ARG":
+        return "0" & 2.toBin(15)
+    of "THIS":
+        return "0" & 3.toBin(15)
+    of "THAT":
+        return "0" & 4.toBin(15)
+    of "SCREEN":
+        return "0" & 16384.toBin(15)
+    of "KBD":
+        return "0" & 24576.toBin(15)
+
+    # look symbol table
+    if symbolTable.table.hasKey(valueString):
+        return "0" & symbolTable.table[valueString].int.toBin(15)
+    
+    try:
+        return "0" & valueString.parseInt().toBin(15)
+    except ValueError:  # 文字列
+        symbolTable.table[valueString] = symbolTable.variableCounter
+        symbolTable.variableCounter += 1
+        return "0" & symbolTable.table[valueString].int.toBin(15)
 
 
 func destCoder(dest: string): string =
@@ -86,7 +144,7 @@ func compCoder(comp: string): string =
 
 
 func cParser(line: string): string =
-    # Parse C command
+    # Parse C instruction
 
     # Dest=Comp;Jump
     var comp, dest, jump: string
@@ -107,26 +165,29 @@ func cParser(line: string): string =
     return "111" & compCoder(comp) & destCoder(dest) & jumpCoder(jump)
 
 
-
-
-func machineFilename(asmFilename: string): string =
-    let splitted = asmFilename.split(".")
-    let machine = splitted[0..splitted.len-2] & "hack"
-    return machine.join(".")
-
-
-func lineProcessor(line: string): Option[string] =
-    # ignore comments and blank line
-    if line.contains("//") or line.strip().len == 0:
-        return none(string)
-    
-    let command: Command = commandParser(line)
-    case command
-    of ACommand:
-        return some(line.aParser)
-    of CCommand:
+func lineProcessor(line: string, symbolTable: var SymbolTable): Option[string] =
+    let instruction: Instruction = instructionParser(line)
+    case instruction
+    of AInstruction:
+        return some(line.aParser(symbolTable))
+    of CInstruction:
         return some(line.cParser)
 
+
+func createSymbolTable(allLines: seq[string]): (SymbolTable, seq[string]) =
+    var symbolTable: SymbolTable = initSymbolTable()
+    var i: uint = 0
+    var newLines: seq[string] = @[]
+
+    for line in allLines:
+        if line.contains('('):
+            let symbol = line.replace("(", "").replace(")", "")
+            symbolTable.table[symbol] = i
+            continue
+        newLines.add(line)
+        i += 1
+
+    return (symbolTable, newLines)
 
 
 proc main() =
@@ -140,16 +201,26 @@ proc main() =
     block:
         let fasm: File = open(filename, FileMode.fmRead)
         let fmachine: File = open(filename.machineFilename, FileMode.fmWrite)
+
+        # read all lines
+        let allLines: seq[string] = map(
+            fasm.readAll().split('\n'),
+            (x) => normalize(x)
+        ).filter((x) => x.len > 0)
         
-        while true:
-            try:
-                let line = fasm.readLine()
-                let converted: Option[string] = lineProcessor(line)
-                if converted.isNone:
-                    continue
-                fmachine.writeLine(converted.get())
-            except EOFError:
-                break
+        # make symbol table
+        var (symbolTable, newLines) = createSymbolTable(allLines)
+        echo "===SYMBOL TABLE==="
+        for k, v in symbolTable.table.pairs:
+            echo k & ":\t" & $v
+
+        # compile
+        for line in newLines:
+            let converted: Option[string] = lineProcessor(line, symbolTable)
+            if converted.isNone:
+                continue
+            fmachine.writeLine(converted.get())
+
         defer:
             close(fasm)
             close(fmachine)
@@ -157,4 +228,3 @@ proc main() =
 
 when isMainModule:
     main()
-
